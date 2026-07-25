@@ -5,9 +5,8 @@ POST /narrate
   resp: { "narration": "Here, in the fluorescent glow of the conference room..." }
 """
 import base64
-import os
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from google import genai
 from google.genai import types
