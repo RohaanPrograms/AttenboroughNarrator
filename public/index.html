@@ -141,7 +141,7 @@
       </div>
       <button id="downloadBtn" class="secondary" style="display:none">⬇ Download transcript</button>
       <input id="fileInput" type="file" accept="video/*" hidden />
-      <label id="recordLabel"><input id="recordChk" type="checkbox" /> ⏺ Record this session — download a video (with narration) when it ends</label>
+      <label id="recordLabel"><input id="recordChk" type="checkbox" /> ⏺ Record live session as a video (uploads always download narrated)</label>
       <div id="hint">Live uses your camera · Upload narrates any video · sound on</div>
       <div id="disclaimer">
         Keep moving or doing something — the narrator feeds on activity, so a
@@ -246,7 +246,16 @@
     function startRecording() {
       if (!window.MediaRecorder) { console.warn('MediaRecorder unsupported'); return; }
       recCanvas = document.createElement('canvas');
-      recCanvas.width = 1280; recCanvas.height = 720;
+      // Match the source's aspect ratio so portrait/landscape clips aren't
+      // cropped; cap the long edge at 1280 and keep dimensions even.
+      let cw = 1280, ch = 720;
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (vw && vh) {
+        const ar = vw / vh;
+        if (ar >= 1) { cw = Math.min(1280, vw); ch = Math.round(cw / ar); }
+        else { ch = Math.min(1280, vh); cw = Math.round(ch * ar); }
+      }
+      recCanvas.width = cw - (cw % 2); recCanvas.height = ch - (ch % 2);
       recCtx = recCanvas.getContext('2d');
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       audioCtx.resume?.();
@@ -265,36 +274,33 @@
       drawRecordFrame();
     }
 
-    // Composite the current video frame + letterbox + caption onto the canvas.
+    // Composite the current video frame (filled) + caption onto the canvas.
     function drawRecordFrame() {
       if (!recording) return;
       const W = recCanvas.width, H = recCanvas.height;
       recCtx.fillStyle = '#000'; recCtx.fillRect(0, 0, W, H);
       const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
-      const scale = Math.max(W / vw, H / vh);           // cover fit
+      const scale = Math.max(W / vw, H / vh);           // cover fit (no distortion)
       const dw = vw * scale, dh = vh * scale;
       try { recCtx.drawImage(video, (W - dw) / 2, (H - dh) / 2, dw, dh); } catch (e) {}
-      const bar = H * 0.10;                              // letterbox bars
-      recCtx.fillStyle = '#000';
-      recCtx.fillRect(0, 0, W, bar); recCtx.fillRect(0, H - bar, W, bar);
-      if (currentCaption) drawCaption(currentCaption, W, H, bar);
+      if (currentCaption) drawCaption(currentCaption, W, H);
       rafId = requestAnimationFrame(drawRecordFrame);
     }
 
-    function drawCaption(text, W, H, bar) {
-      recCtx.font = 'italic 34px Georgia, serif';
+    function drawCaption(text, W, H) {
+      const size = Math.max(20, Math.round(W / 38));
+      recCtx.font = `italic ${size}px Georgia, serif`;
       recCtx.textAlign = 'center';
       recCtx.fillStyle = '#f4f1ea';
-      recCtx.shadowColor = 'rgba(0,0,0,.9)'; recCtx.shadowBlur = 8;
-      // word-wrap to ~80% width
-      const maxW = W * 0.8, words = text.split(' '), lines = [];
+      recCtx.shadowColor = 'rgba(0,0,0,.95)'; recCtx.shadowBlur = 10;
+      const maxW = W * 0.86, words = text.split(' '), lines = [];
       let line = '';
       for (const w of words) {
         if (recCtx.measureText(line + w).width > maxW && line) { lines.push(line.trim()); line = ''; }
         line += w + ' ';
       }
       if (line.trim()) lines.push(line.trim());
-      const lh = 44, startY = H - bar - 30 - (lines.length - 1) * lh;
+      const lh = size * 1.3, startY = H - Math.round(H * 0.06) - (lines.length - 1) * lh;
       lines.forEach((ln, i) => recCtx.fillText(ln, W / 2, startY + i * lh));
       recCtx.shadowBlur = 0;
     }
@@ -311,7 +317,8 @@
       const blob = new Blob(recChunks, { type: recorder.mimeType || 'video/webm' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'attenborough-recording.webm';
+      a.download = mode === 'video' ? 'attenborough-narrated-video.webm'
+                                    : 'attenborough-recording.webm';
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
       try { audioCtx && audioCtx.close(); } catch (e) {}
@@ -481,7 +488,9 @@
       rec.style.display = 'flex';
       statusEl.textContent = 'observing…';
       updateTopbar();
-      if (recordChk.checked) startRecording();   // capture the whole session
+      // Uploaded videos always record → you get the narrated video back.
+      // Live mode records only if you ticked the box.
+      if (recordChk.checked || mode === 'video') startRecording();
       tick();                              // fire immediately, then on an interval
       timer = setInterval(tick, INTERVAL_MS);
     }
