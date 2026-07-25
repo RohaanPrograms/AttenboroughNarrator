@@ -98,6 +98,13 @@
     .secondary:hover { background: rgba(224,176,85,.12); }
     .row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; justify-content: center; }
     #hint { font-family: system-ui, sans-serif; font-size: .8rem; color: #8b857a; }
+    #disclaimer {
+      font-family: system-ui, sans-serif; font-size: .82rem; line-height: 1.6;
+      color: #cfc8ba; max-width: 46ch; margin-top: 4px;
+      border: 1px solid rgba(224,176,85,.35); border-radius: 10px;
+      padding: 12px 18px; background: rgba(224,176,85,.06);
+    }
+    #disclaimer strong { color: var(--gold); }
   </style>
 </head>
 <body>
@@ -130,6 +137,12 @@
       <button id="downloadBtn" class="secondary" style="display:none">⬇ Download transcript</button>
       <input id="fileInput" type="file" accept="video/*" hidden />
       <div id="hint">Live uses your camera · Upload narrates any video · sound on</div>
+      <div id="disclaimer">
+        Keep moving or doing something — the narrator feeds on activity, so a
+        still, empty frame gives it little to describe.<br />
+        The first line takes about <strong>7 seconds</strong> to arrive — hang
+        tight, it's watching.
+      </div>
     </div>
   </div>
 
