@@ -5,38 +5,115 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Attenborough Mode</title>
   <style>
-    /* Phase 1: ugly-but-complete. Real cinematic polish comes in Phase 3. */
-    body { margin: 0; background: #111; color: #eee; font-family: Georgia, serif; }
-    #stage { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
-    #cam { width: 100%; height: 100%; object-fit: cover; }
-    #caption {
-      position: absolute; left: 0; right: 0; bottom: 8%;
-      text-align: center; font-size: 1.6rem; line-height: 1.4;
-      padding: 0 8%; text-shadow: 0 2px 6px #000;
+    :root {
+      --gold: #e0b055;
+      --bar: 12vh;              /* letterbox bar height */
+      --serif: Georgia, 'Times New Roman', 'Playfair Display', serif;
     }
-    #controls {
-      position: absolute; top: 16px; left: 16px; display: flex; gap: 12px; align-items: center;
-      font-family: system-ui, sans-serif;
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #000; color: #f4f1ea; font-family: var(--serif); }
+    #stage { position: fixed; inset: 0; overflow: hidden; background: #000; }
+
+    /* Webcam fills the frame between the letterbox bars. */
+    #cam {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; filter: saturate(1.05) contrast(1.03);
     }
-    button {
-      font-size: 1rem; padding: 10px 18px; border: 0; border-radius: 8px;
-      background: #e0b055; color: #111; cursor: pointer; font-weight: 600;
+    /* Subtle cinematic vignette. */
+    #stage::after {
+      content: ""; position: absolute; inset: 0; pointer-events: none;
+      box-shadow: inset 0 0 220px 40px rgba(0,0,0,.65);
     }
-    button:disabled { opacity: .5; cursor: default; }
-    #status { font-size: .85rem; color: #aaa; }
-    .live { color: #ff5252; font-weight: 700; }
+
+    /* Letterbox bars (top/bottom black cinema bars). */
+    .letterbox { position: absolute; left: 0; right: 0; height: var(--bar);
+      background: #000; z-index: 3; pointer-events: none; }
+    .letterbox.top { top: 0; }
+    .letterbox.bottom { bottom: 0; }
+
+    /* REC / LIVE indicator (top-left, inside the top bar). */
+    #rec {
+      position: absolute; top: calc(var(--bar) / 2); left: 4vw; transform: translateY(-50%);
+      z-index: 5; display: none; align-items: center; gap: 10px;
+      font-family: system-ui, sans-serif; letter-spacing: .18em; font-size: .8rem;
+      color: #f4f1ea; text-transform: uppercase;
+    }
+    #rec .dot { width: 12px; height: 12px; border-radius: 50%; background: #ff3b30;
+      box-shadow: 0 0 10px #ff3b30; animation: pulse 1.6s infinite ease-in-out; }
+    #rec.narrating .dot { animation-duration: .7s; }   /* faster pulse while speaking */
+    #rec .sub { color: #b9b2a4; letter-spacing: .12em; font-size: .72rem; }
+    @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); }
+                       50% { opacity: .35; transform: scale(.8); } }
+
+    /* Stop control (top-right, appears while running). */
+    #stopBtn {
+      position: absolute; top: calc(var(--bar) / 2); right: 4vw; transform: translateY(-50%);
+      z-index: 5; display: none; font-family: system-ui, sans-serif;
+      background: rgba(255,255,255,.12); color: #f4f1ea; border: 1px solid rgba(255,255,255,.3);
+      padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: .85rem;
+    }
+    #stopBtn:hover { background: rgba(255,255,255,.22); }
+
+    /* Subtitle bar — BBC-style, serif, fades in/out, sits above the bottom bar. */
+    #subtitle {
+      position: absolute; left: 0; right: 0; bottom: calc(var(--bar) + 3.5vh);
+      z-index: 5; text-align: center; padding: 0 10vw;
+      font-size: clamp(1.2rem, 2.6vw, 2.1rem); line-height: 1.45; font-style: italic;
+      text-shadow: 0 2px 12px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.8);
+      opacity: 0; transition: opacity .5s ease; will-change: opacity;
+    }
+    #subtitle.show { opacity: 1; }
+
+    /* Title card overlay. */
+    #titlecard {
+      position: absolute; inset: 0; z-index: 8; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; text-align: center; gap: 26px;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,.55), rgba(0,0,0,.9));
+      transition: opacity .8s ease; padding: 8vh 6vw;
+    }
+    #titlecard.hidden { opacity: 0; pointer-events: none; }
+    #titlecard .kicker { font-family: system-ui, sans-serif; letter-spacing: .4em;
+      text-transform: uppercase; font-size: .8rem; color: var(--gold); }
+    #titlecard h1 { margin: 0; font-size: clamp(2.4rem, 7vw, 5rem); font-weight: 600;
+      letter-spacing: .01em; }
+    #titlecard .tagline { margin: 0; font-style: italic; color: #cfc8ba;
+      font-size: clamp(1rem, 2.4vw, 1.4rem); max-width: 40ch; }
+    #startBtn {
+      margin-top: 8px; font-family: system-ui, sans-serif; font-weight: 700;
+      font-size: 1.05rem; letter-spacing: .04em; padding: 15px 34px; border: 0;
+      border-radius: 999px; background: var(--gold); color: #1a1206; cursor: pointer;
+      box-shadow: 0 8px 30px rgba(224,176,85,.35); transition: transform .15s ease, box-shadow .15s ease;
+    }
+    #startBtn:hover { transform: translateY(-2px); box-shadow: 0 12px 36px rgba(224,176,85,.5); }
+    #startBtn:disabled { opacity: .6; cursor: default; transform: none; }
+    #hint { font-family: system-ui, sans-serif; font-size: .8rem; color: #8b857a; }
   </style>
 </head>
 <body>
   <div id="stage">
     <video id="cam" autoplay playsinline muted></video>
-    <div id="caption"></div>
-    <div id="controls">
+
+    <div class="letterbox top"></div>
+    <div class="letterbox bottom"></div>
+
+    <div id="rec">
+      <span class="dot"></span>
+      <span>Live</span>
+      <span class="sub" id="status"></span>
+    </div>
+    <button id="stopBtn">■ Stop</button>
+
+    <div id="subtitle"></div>
+
+    <div id="titlecard">
+      <div class="kicker">A Nature Documentary</div>
+      <h1>Attenborough Mode</h1>
+      <p class="tagline">Rare footage of the modern developer in its natural habitat, narrated as it truly deserves.</p>
       <button id="startBtn">▶ Start Documentary</button>
-      <button id="stopBtn" disabled>■ Stop</button>
-      <span id="status">idle</span>
+      <div id="hint">Best with sound on. Camera access required.</div>
     </div>
   </div>
+
   <canvas id="grab" style="display:none"></canvas>
 
   <script>
@@ -45,12 +122,14 @@
     // of the voice, and each frame is still one Gemini + one ElevenLabs call.
     const INTERVAL_MS = 6000;
 
-    const video   = document.getElementById('cam');
-    const canvas  = document.getElementById('grab');
-    const caption = document.getElementById('caption');
+    const video    = document.getElementById('cam');
+    const canvas   = document.getElementById('grab');
+    const subtitle = document.getElementById('subtitle');
     const statusEl = document.getElementById('status');
     const startBtn = document.getElementById('startBtn');
     const stopBtn  = document.getElementById('stopBtn');
+    const rec       = document.getElementById('rec');
+    const titlecard = document.getElementById('titlecard');
 
     let timer = null;
     const TTS_URL = location.origin + '/tts';
@@ -64,6 +143,12 @@
     let playing = false;       // the player loop is running
     let currentAudio = null;   // active <audio>, so stop() can halt it
     const MAX_QUEUE = 2;       // don't run more than this far ahead of speech
+
+    // Fade the subtitle out, swap text, fade back in — BBC-style.
+    function showCaption(text) {
+      subtitle.classList.remove('show');
+      setTimeout(() => { subtitle.textContent = text; subtitle.classList.add('show'); }, 180);
+    }
 
     // Play an MP3 URL to completion. Resolves only when the clip ENDS —
     // this is what guarantees a narration is never cut off mid-sentence.
@@ -117,7 +202,6 @@
       // Don't stack requests, and don't race too far ahead of what's spoken.
       if (fetching || queue.length >= MAX_QUEUE) return;
       fetching = true;
-      statusEl.innerHTML = '<span class="live">● LIVE</span> observing…';
       try {
         const image = grabFrame();
         const res = await fetch(API, {
@@ -131,7 +215,7 @@
         drainQueue();                                 // start playing if idle
       } catch (e) {
         console.error('narrate failed', e);
-        statusEl.textContent = 'network error — retrying next tick';
+        statusEl.textContent = 'reconnecting…';
       } finally {
         fetching = false;
       }
@@ -141,21 +225,22 @@
     async function drainQueue() {
       if (playing) return;
       playing = true;
+      rec.classList.add('narrating');
       while (queue.length) {
         const item = queue.shift();
-        caption.textContent = item.text;           // caption in sync with audio
+        showCaption(item.text);                     // caption in sync with audio
+        statusEl.textContent = 'narrating…';
         if (item.url) await playAudio(item.url);
         else await playBrowser(item.text);
       }
+      rec.classList.remove('narrating');
+      statusEl.textContent = 'observing…';
       playing = false;
     }
 
-    // Pick the most Attenborough-ish browser voice available. Real upgrade
-    // (ElevenLabs British voice) lands in Phase 2 — this just makes the
-    // placeholder as good as the OS allows.
+    // Pick the most Attenborough-ish browser voice available (fallback path).
     function pickVoice() {
       const voices = speechSynthesis.getVoices();
-      // Preferred named British male voices, best first.
       const preferred = [
         /Daniel/i, /Google UK English Male/i, /George/i, /Arthur/i, /Ryan/i,
       ];
@@ -196,7 +281,10 @@
         startBtn.disabled = false;
         return;
       }
-      stopBtn.disabled = false;
+      titlecard.classList.add('hidden');
+      rec.style.display = 'flex';
+      stopBtn.style.display = 'block';
+      statusEl.textContent = 'observing…';
       tick();                          // fire immediately, then on an interval
       timer = setInterval(tick, INTERVAL_MS);
     }
@@ -209,9 +297,12 @@
       queue.length = 0;      // drop anything waiting to be spoken
       playing = false;
       fetching = false;
-      stopBtn.disabled = true;
+      rec.style.display = 'none';
+      rec.classList.remove('narrating');
+      stopBtn.style.display = 'none';
+      subtitle.classList.remove('show');
+      titlecard.classList.remove('hidden');
       startBtn.disabled = false;
-      statusEl.textContent = 'stopped';
     }
 
     startBtn.addEventListener('click', start);
