@@ -36,13 +36,12 @@ MODEL = "gemini-flash-latest"
 TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview").strip()
 # Prebuilt voice. "Charon" = deep + informative, a good Attenborough fit.
 # Alternatives to try: "Orus" (firm), "Fenrir" (excitable), "Puck", "Kore".
-TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Charon").strip()
-# Delivery direction — this is what gives the pauses and emphasis. It's read
-# as a style instruction, not spoken aloud.
+TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Orus").strip()
+# Delivery direction — read as a style instruction, not spoken aloud. Kept
+# smooth and flowing (no "dramatic pauses") so lines don't feel awkward.
 TTS_STYLE = (
-    "Read aloud in the warm, hushed, awe-filled voice of a wildlife "
-    "documentary narrator. Use a measured pace with dramatic pauses and "
-    "gently emphasise the key words:"
+    "Narrate this in a warm, engaging wildlife-documentary voice with a "
+    "smooth, natural, flowing delivery at a lively and steady pace:"
 )
 # Gemini TTS returns raw PCM: 24 kHz, 16-bit, mono.
 TTS_RATE, TTS_WIDTH, TTS_CHANNELS = 24000, 2, 1
