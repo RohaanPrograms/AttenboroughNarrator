@@ -35,6 +35,31 @@ python app.py          # serves on http://localhost:3000
 
 Then open **http://localhost:3000/** in Chrome, grant camera access, and hit **Start Documentary**.
 
+## Two ways to use it
+
+- **Live** — hit **Start Documentary**, allow the camera, and it narrates you in real time.
+- **Upload a Video** — pick any video file and it narrates that instead.
+
+Both modes also give you a **downloadable transcript** of every narrated line
+(with timestamps).
+
+## Recording & narrated-video export
+
+- **Uploaded videos download automatically.** When an uploaded clip finishes,
+  the browser saves **`attenborough-narrated-video.webm`** — the source video
+  (kept at its own aspect ratio) with the Gemini narration mixed in and the
+  subtitles burned on. Documentary-style: narration over the (muted) footage.
+- **Live sessions:** tick **"Record live session as a video"** on the home
+  screen before you start; it downloads **`attenborough-recording.webm`** when
+  you press Stop.
+
+How it's made: the frame + subtitles are composited onto a `<canvas>`
+(`captureStream`), the Gemini TTS audio is tapped via the Web Audio API, and
+both tracks are muxed by `MediaRecorder` into a WebM. Narration trails the
+video slightly (AI latency), and the recording runs a touch past the end so the
+final lines finish — so the export is a little longer than the source. Lines
+that fall back to the browser voice (rare) aren't captured in the audio.
+
 ## How it works
 
 ```
