@@ -6,8 +6,8 @@ POST /narrate
 
 POST /tts
   body: { "text": "..." }
-  resp: audio/wav spoken by Gemini TTS with a dramatic documentary delivery
-        (pauses + emphasis). Falls back to browser TTS only if the call errors.
+  resp: audio/wav spoken by Gemini TTS with a smooth, flowing documentary
+        delivery. Falls back to browser TTS only if the call errors.
 """
 import base64
 import io
@@ -37,11 +37,15 @@ TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview").s
 # Prebuilt voice. "Charon" = deep + informative, a good Attenborough fit.
 # Alternatives to try: "Orus" (firm), "Fenrir" (excitable), "Puck", "Kore".
 TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Orus").strip()
-# Delivery direction — read as a style instruction, not spoken aloud. Kept
-# smooth and flowing (no "dramatic pauses") so lines don't feel awkward.
+# Delivery direction — read as a style instruction, not spoken aloud. Tuned
+# for smooth, continuous delivery (no awkward gaps): tested ~9.8s vs ~18.4s
+# for the older "dramatic pauses" wording on the same line.
 TTS_STYLE = (
-    "Narrate this in a warm, engaging wildlife-documentary voice with a "
-    "smooth, natural, flowing delivery at a lively and steady pace:"
+    "Narrate in a warm, intimate wildlife-documentary style with quiet wonder "
+    "and gentle curiosity. Keep the delivery smooth, natural, and continuous "
+    "at a moderately brisk pace. Use subtle emphasis on important words, but "
+    "avoid long or frequent pauses. Let sentences flow together naturally so "
+    "the narration stays engaging and matches live video without awkward gaps."
 )
 # Gemini TTS returns raw PCM: 24 kHz, 16-bit, mono.
 TTS_RATE, TTS_WIDTH, TTS_CHANNELS = 24000, 2, 1
@@ -100,6 +104,13 @@ Your recent narration (for continuity — do NOT repeat these):
 def build_prompt():
     recent = "\n".join(f"- {line}" for line in history[-3:]) or "- (none yet)"
     return SYSTEM_PROMPT.format(recent=recent)
+
+
+@app.after_request
+def no_cache(resp):
+    # During active dev/demo, never let the browser run a stale index.html.
+    resp.headers["Cache-Control"] = "no-store, max-age=0"
+    return resp
 
 
 @app.get("/")
