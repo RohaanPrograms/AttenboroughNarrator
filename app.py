@@ -52,6 +52,11 @@ Previous narration (for continuity, do not repeat):
 {last_narration}"""
 
 
+@app.get("/")
+def index():
+    return app.send_static_file("index.html")
+
+
 @app.get("/health")
 def health():
     return jsonify(status="ok", model=MODEL)

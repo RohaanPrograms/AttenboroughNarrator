@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Attenborough Mode</title>
+  <style>
+    /* Phase 1: ugly-but-complete. Real cinematic polish comes in Phase 3. */
+    body { margin: 0; background: #111; color: #eee; font-family: Georgia, serif; }
+    #stage { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+    #cam { width: 100%; height: 100%; object-fit: cover; }
+    #caption {
+      position: absolute; left: 0; right: 0; bottom: 8%;
+      text-align: center; font-size: 1.6rem; line-height: 1.4;
+      padding: 0 8%; text-shadow: 0 2px 6px #000;
+    }
+    #controls {
+      position: absolute; top: 16px; left: 16px; display: flex; gap: 12px; align-items: center;
+      font-family: system-ui, sans-serif;
+    }
+    button {
+      font-size: 1rem; padding: 10px 18px; border: 0; border-radius: 8px;
+      background: #e0b055; color: #111; cursor: pointer; font-weight: 600;
+    }
+    button:disabled { opacity: .5; cursor: default; }
+    #status { font-size: .85rem; color: #aaa; }
+    .live { color: #ff5252; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <video id="cam" autoplay playsinline muted></video>
+    <div id="caption"></div>
+    <div id="controls">
+      <button id="startBtn">▶ Start Documentary</button>
+      <button id="stopBtn" disabled>■ Stop</button>
+      <span id="status">idle</span>
+    </div>
+  </div>
+  <canvas id="grab" style="display:none"></canvas>
+
+  <script>
+    const API = location.origin + '/narrate';   // same-origin: Flask serves this page
+    const INTERVAL_MS = 5000;
+
+    const video   = document.getElementById('cam');
+    const canvas  = document.getElementById('grab');
+    const caption = document.getElementById('caption');
+    const statusEl = document.getElementById('status');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn  = document.getElementById('stopBtn');
+
+    let timer = null;
+    let busy = false;   // skip-if-busy so requests never stack up (see plan §8)
+
+    async function initCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      await video.play();
+    }
+
+    // Draw the current video frame to a hidden canvas and return base64 JPEG (no data: prefix).
+    function grabFrame() {
+      const w = 640, h = 480;
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(video, 0, 0, w, h);
+      return canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+    }
+
+    async function tick() {
+      if (busy) return;                 // previous narration still in flight — skip this tick
+      busy = true;
+      statusEl.innerHTML = '<span class="live">● LIVE</span> observing…';
+      try {
+        const image = grabFrame();
+        const res = await fetch(API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image })
+        });
+        const { narration } = await res.json();
+        caption.textContent = narration;
+        speak(narration);
+      } catch (e) {
+        console.error('narrate failed', e);
+        statusEl.textContent = 'network error — retrying next tick';
+      } finally {
+        busy = false;
+      }
+    }
+
+    function speak(text) {
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 0.9; u.pitch = 0.8;
+      const v = speechSynthesis.getVoices().find(v => /en-GB/i.test(v.lang));
+      if (v) u.voice = v;
+      speechSynthesis.cancel();   // Phase 1: cut off any prior line; proper queue comes in Phase 2
+      speechSynthesis.speak(u);
+    }
+
+    async function start() {
+      startBtn.disabled = true;
+      try {
+        await initCamera();
+      } catch (e) {
+        alert('Camera access is required. Please allow it and try again.');
+        startBtn.disabled = false;
+        return;
+      }
+      stopBtn.disabled = false;
+      tick();                          // fire immediately, then on an interval
+      timer = setInterval(tick, INTERVAL_MS);
+    }
+
+    function stop() {
+      if (timer) clearInterval(timer);
+      timer = null;
+      speechSynthesis.cancel();
+      stopBtn.disabled = true;
+      startBtn.disabled = false;
+      statusEl.textContent = 'stopped';
+    }
+
+    startBtn.addEventListener('click', start);
+    stopBtn.addEventListener('click', stop);
+
+    // Voices load asynchronously in some browsers; nudge them to populate.
+    speechSynthesis.onvoiceschanged = () => {};
+  </script>
+</body>
+</html>
