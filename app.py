@@ -50,7 +50,52 @@ TTS_STYLE = (
 # Gemini TTS returns raw PCM: 24 kHz, 16-bit, mono.
 TTS_RATE, TTS_WIDTH, TTS_CHANNELS = 24000, 2, 1
 
+# --- Pacing / flow --------------------------------------------------------
+# If a narration would be spoken in less time than the frontend's sampling
+# interval, the player drains the queue faster than it refills → silent gaps.
+# So we lengthen short lines with in-character filler until they roughly span
+# the interval, keeping playback continuous.
+TARGET_SECONDS = float(os.environ.get("TARGET_SECONDS", "6.5"))  # ~ frontend INTERVAL_MS
+WORDS_PER_SEC = 2.0  # measured pace of this TTS voice (~19 words ≈ 9.8s)
+
 client = genai.Client()  # reads GEMINI_API_KEY from the environment
+
+
+def estimate_seconds(text: str) -> float:
+    """Rough spoken duration of a line, from its word count."""
+    return len(text.split()) / WORDS_PER_SEC
+
+
+def elongate(text: str) -> str:
+    """Expand a too-short narration with gentle filler so playback stays gapless.
+
+    Note: we deliberately do NOT ask for a word count — that makes the model
+    visibly "count" and leak its reasoning into the output.
+    """
+    prompt = (
+        "You are Sir David Attenborough narrating wildlife. Take this single "
+        "narration line and say it again as ONE longer, unbroken, flowing "
+        "passage — linger on the SAME moment with a little more gentle detail "
+        "so it takes a few seconds longer to speak aloud. Do not add notes, "
+        "labels, quotation marks, or word counts. Output ONLY the narration "
+        "passage itself:\n\n" + text
+    )
+    try:
+        resp = client.models.generate_content(
+            model=MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.85,
+                # This rewrite spends a lot of tokens "thinking"; give it plenty
+                # of headroom so the expanded line is never truncated.
+                max_output_tokens=600,
+                thinking_config=types.ThinkingConfig(thinking_budget=128),
+            ),
+        )
+        return (resp.text or "").strip() or text
+    except Exception as e:
+        print("elongate error:", e)
+        return text
 
 
 def pcm_to_wav(pcm: bytes) -> bytes:
@@ -137,14 +182,17 @@ def narrate():
             ],
             config=types.GenerateContentConfig(
                 temperature=0.95,
-                # gemini-flash-latest is a thinking model. It spends output
-                # tokens on internal reasoning, so cap thinking low and leave
-                # room for a 1-2 sentence narration.
-                max_output_tokens=250,
+                # gemini-flash-latest is a thinking model that can spend a lot
+                # of tokens reasoning; give generous headroom so the 1-2 sentence
+                # narration is never truncated mid-line.
+                max_output_tokens=500,
                 thinking_config=types.ThinkingConfig(thinking_budget=128),
             ),
         )
         text = (resp.text or "").strip() or "The creature has momentarily eluded us."
+        # Keep playback gapless: stretch lines that would be too short to speak.
+        if estimate_seconds(text) < TARGET_SECONDS:
+            text = elongate(text)
         history.append(text)
         del history[:-5]  # keep memory bounded
         return jsonify(narration=text)
