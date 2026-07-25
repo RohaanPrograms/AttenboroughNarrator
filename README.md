@@ -22,10 +22,10 @@ GEMINI_API_KEY=your_key_from_aistudio.google.com
 > Each person uses their own key.
 >
 > **Voice:** narration is spoken by **Gemini TTS** using the *same* key — one
-> provider, no extra setup. It's instructed to deliver lines like a wildlife
-> documentary, with dramatic pauses and emphasis. Change the voice with
-> `GEMINI_TTS_VOICE` (default "Charon"). If TTS ever errors, it falls back to
-> the browser's built-in voice automatically.
+> provider, no extra setup. It's instructed to deliver lines in a smooth,
+> flowing wildlife-documentary style with a refined British (RP) accent. Change
+> the voice with `GEMINI_TTS_VOICE` (default "Charon"). If TTS ever errors, it
+> falls back to the browser's built-in voice automatically.
 
 Run the backend:
 
@@ -50,9 +50,32 @@ Browser (webcam) --base64 JPEG--> Flask /narrate --image--> Gemini --text--> Bro
 POST /narrate
   body: { "image": "<base64 jpeg, no data: prefix>" }
   resp: { "narration": "Here, in the fluorescent glow of the conference room..." }
+
+POST /tts
+  body: { "text": "..." }
+  resp: audio/wav  (Gemini TTS, British documentary voice)
 ```
+
+## Powered by Gemini
+
+The **entire pipeline runs on Gemini** through one key and the official
+`google-genai` SDK — multimodal vision describes the scene, text generation
+shapes it, and native TTS speaks it. No other AI services involved.
+
+| Gemini feature | Where we use it |
+|---|---|
+| **Multimodal vision** (image + text → text) | Send each frame (JPEG) + instruction to `generate_content` → the narration. Model `gemini-flash-latest`. |
+| **Native Text-to-Speech** (text → audio) | `generate_content` with `response_modalities=["AUDIO"]` + `SpeechConfig`/`PrebuiltVoiceConfig`. Model `gemini-3.1-flash-tts-preview`, voice "Charon". |
+| **Prompt-controlled voice delivery** | Accent (British RP), pace, and emphasis are steered purely by a natural-language style prompt prefixed to the TTS text. |
+| **Thinking budget control** | `ThinkingConfig(thinking_budget=128)` caps internal reasoning so lines aren't truncated (both models are thinking models). |
+| **Generation config** | `temperature` (playful variety) and `max_output_tokens` (length/cost). |
+| **Text generation** | `elongate()` rewrites too-short narrations into longer flowing passages so audio playback stays gapless. |
+| **Prompt engineering + continuity** | A crafted system prompt, plus the last 3 narrations fed back in so it doesn't repeat itself and builds a loose story. |
+| **Model discovery** | `client.models.list()` to find the TTS model available on the account. |
 
 ## Notes
 
 - Model: `gemini-flash-latest` (the plan's `gemini-2.0-flash` is unavailable on new free-tier accounts). It's a thinking model, so the backend sets a small `thinking_budget` and a generous token cap.
+- Two modes: **live webcam** and **upload a video** — both narrated by the same pipeline, with a downloadable transcript.
+- Run in stable mode with `python app.py`; set `FLASK_DEBUG=1` for auto-reload while developing.
 - Full build plan and phased timeline: [`Attenborough-Mode-Build-Plan.md`](Attenborough-Mode-Build-Plan.md).
