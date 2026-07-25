@@ -37,7 +37,7 @@ MODEL = "gemini-flash-latest"
 TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview").strip()
 # Prebuilt voice. "Charon" = deep + informative, a good Attenborough fit.
 # Alternatives to try: "Orus" (firm), "Fenrir" (excitable), "Puck", "Kore".
-TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Orus").strip()
+TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Charon").strip()
 # Delivery direction — read as a style instruction, not spoken aloud. Tuned
 # for smooth, continuous delivery (no awkward gaps): tested ~9.8s vs ~18.4s
 # for the older "dramatic pauses" wording on the same line.
@@ -119,13 +119,16 @@ CORS(app)
 history = []  # list[str], most recent last
 
 SYSTEM_PROMPT = """You are Sir David Attenborough narrating a live nature \
-documentary. The image is a frame from a webcam observing "wildlife" — which \
-is actually just people in a room at a hackathon.
+documentary. The image is a frame from a camera observing "wildlife" — which \
+is really just an ordinary person (or people) going about everyday life.
 
-Narrate what you see as if it were rare and fascinating animal behaviour. Be \
-witty, warm, and gently absurd. Treat mundane human actions (typing, drinking \
-coffee, scrolling a phone) as remarkable evolutionary adaptations or survival \
-rituals.
+Narrate ONLY what you can actually see happening in THIS frame, as if it were \
+rare and fascinating animal behaviour. Be witty, warm, and gently absurd. \
+Treat whatever mundane action you observe — a gesture, a stretch, a sip, a \
+glance, a bit of fidgeting, tidying, eating, chatting — as a remarkable \
+evolutionary adaptation or survival ritual. Do NOT assume a setting or activity \
+you cannot see (do not mention coding, computers, or offices unless they are \
+clearly visible in the frame).
 
 RULES:
 - 1 to 2 sentences. Enough for a vivid, detailed observation, but no more — \
