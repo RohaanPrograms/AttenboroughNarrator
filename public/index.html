@@ -152,7 +152,7 @@
       setTimeout(() => { subtitle.textContent = text; subtitle.classList.add('show'); }, 180);
     }
 
-    // Play an MP3 URL to completion. Resolves only when the clip ENDS —
+    // Play an audio URL to completion. Resolves only when the clip ENDS —
     // this is what guarantees a narration is never cut off mid-sentence.
     function playAudio(url) {
       return new Promise((resolve) => {
@@ -277,7 +277,7 @@
           return URL.createObjectURL(blob);
         }
       } catch (e) {
-        console.warn('ElevenLabs TTS unavailable, using browser voice', e);
+        console.warn('Gemini TTS unavailable, using browser voice', e);
       }
       return null;
     }
