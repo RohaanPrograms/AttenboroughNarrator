@@ -78,15 +78,22 @@
       });
     }
 
-    // Speak via the browser voice to completion (fallback path).
+    // Speak via the browser voice to completion (fallback path, used when no
+    // ElevenLabs key is set). Chrome silently truncates any utterance longer
+    // than ~15s; the pause/resume keep-alive below prevents that cut-off.
     function playBrowser(text) {
       return new Promise((resolve) => {
         const u = new SpeechSynthesisUtterance(text);
         u.rate = 0.88; u.pitch = 0.75;   // slow + low = documentary gravitas
         const v = pickVoice();
         if (v) u.voice = v;
-        u.onend = resolve;
-        u.onerror = resolve;
+        const keepAlive = setInterval(() => {
+          speechSynthesis.pause();
+          speechSynthesis.resume();
+        }, 10000);
+        const done = () => { clearInterval(keepAlive); resolve(); };
+        u.onend = done;
+        u.onerror = done;
         speechSynthesis.speak(u);
       });
     }
