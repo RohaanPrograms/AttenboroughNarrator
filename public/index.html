@@ -55,25 +55,33 @@
     let busy = false;   // a /narrate request is in flight
     const TTS_URL = location.origin + '/tts';
 
-    // --- Audio queue: play narrations one at a time, never overlapping (§8) ---
-    const audioQueue = [];
-    let playing = false;
+    // Currently-playing audio element, so stop() can halt it.
+    let currentAudio = null;
 
-    function enqueueAudio(url) {
-      audioQueue.push(url);
-      if (!playing) playNext();
+    // Play an MP3 URL to completion. Resolves only when the clip ENDS —
+    // this is what guarantees a narration is never cut off mid-sentence.
+    function playAudio(url) {
+      return new Promise((resolve) => {
+        const a = new Audio(url);
+        currentAudio = a;
+        const done = () => { URL.revokeObjectURL(url); currentAudio = null; resolve(); };
+        a.onended = done;
+        a.onerror = done;
+        a.play().catch(done);
+      });
     }
-    function playNext() {
-      if (audioQueue.length === 0) { playing = false; return; }
-      playing = true;
-      const a = new Audio(audioQueue.shift());
-      a.onended = () => { URL.revokeObjectURL(a.src); playNext(); };
-      a.onerror = () => { playNext(); };
-      a.play().catch(() => playNext());
-    }
-    // True while anything is still being spoken (either ElevenLabs or browser).
-    function isSpeaking() {
-      return playing || audioQueue.length > 0 || speechSynthesis.speaking;
+
+    // Speak via the browser voice to completion (fallback path).
+    function playBrowser(text) {
+      return new Promise((resolve) => {
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 0.88; u.pitch = 0.75;   // slow + low = documentary gravitas
+        const v = pickVoice();
+        if (v) u.voice = v;
+        u.onend = resolve;
+        u.onerror = resolve;
+        speechSynthesis.speak(u);
+      });
     }
 
     async function initCamera() {
@@ -91,8 +99,9 @@
     }
 
     async function tick() {
-      // Skip, don't stack: if we're mid-request or still speaking, wait (§8).
-      if (busy || isSpeaking()) return;
+      // Skip, don't stack: busy stays true through the ENTIRE narration
+      // (request + full audio playback), so a line is never interrupted (§8).
+      if (busy) return;
       busy = true;
       statusEl.innerHTML = '<span class="live">● LIVE</span> observing…';
       try {
@@ -129,8 +138,9 @@
       return voices.find(v => /en-GB/i.test(v.lang)) || null;  // any British
     }
 
-    // Primary: ElevenLabs deep British voice via the backend. If that isn't
-    // available (no key / error), fall back to the browser voice.
+    // Primary: ElevenLabs deep British voice via the backend, played to
+    // completion. Falls back to the browser voice if that isn't available.
+    // Returns only when the line has FINISHED speaking.
     async function speak(text) {
       try {
         const res = await fetch(TTS_URL, {
@@ -140,21 +150,13 @@
         });
         if (res.ok && (res.headers.get('content-type') || '').includes('audio')) {
           const blob = await res.blob();
-          enqueueAudio(URL.createObjectURL(blob));
+          await playAudio(URL.createObjectURL(blob));
           return;
         }
       } catch (e) {
         console.warn('ElevenLabs TTS unavailable, using browser voice', e);
       }
-      speakBrowser(text);
-    }
-
-    function speakBrowser(text) {
-      const u = new SpeechSynthesisUtterance(text);
-      u.rate = 0.88; u.pitch = 0.75;   // slow + low = documentary gravitas
-      const v = pickVoice();
-      if (v) u.voice = v;
-      speechSynthesis.speak(u);   // queued naturally; isSpeaking() gates overlap
+      await playBrowser(text);
     }
 
     async function start() {
@@ -175,8 +177,8 @@
       if (timer) clearInterval(timer);
       timer = null;
       speechSynthesis.cancel();
-      audioQueue.length = 0;   // drop any pending ElevenLabs clips
-      playing = false;
+      if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+      busy = false;
       stopBtn.disabled = true;
       startBtn.disabled = false;
       statusEl.textContent = 'stopped';
