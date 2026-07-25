@@ -250,4 +250,7 @@ def tts():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3000, debug=True)
+    # Stable single process for the demo (no reloader). Set FLASK_DEBUG=1 for
+    # auto-reload while developing.
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(host="0.0.0.0", port=3000, debug=debug)
