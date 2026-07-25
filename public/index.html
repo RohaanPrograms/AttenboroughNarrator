@@ -45,14 +45,17 @@
     @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); }
                        50% { opacity: .35; transform: scale(.8); } }
 
-    /* Stop control (top-right, appears while running). */
-    #stopBtn {
+    /* Top-right control group (Stop + Transcript), appears while running. */
+    #topRight {
       position: absolute; top: calc(var(--bar) / 2); right: 4vw; transform: translateY(-50%);
-      z-index: 5; display: none; font-family: system-ui, sans-serif;
-      background: rgba(255,255,255,.12); color: #f4f1ea; border: 1px solid rgba(255,255,255,.3);
-      padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: .85rem;
+      z-index: 6; display: none; gap: 10px; align-items: center;
     }
-    #stopBtn:hover { background: rgba(255,255,255,.22); }
+    #topRight button {
+      font-family: system-ui, sans-serif; font-size: .85rem; cursor: pointer;
+      background: rgba(255,255,255,.12); color: #f4f1ea;
+      border: 1px solid rgba(255,255,255,.3); padding: 8px 16px; border-radius: 6px;
+    }
+    #topRight button:hover { background: rgba(255,255,255,.22); }
 
     /* Subtitle bar — BBC-style, serif, fades in/out, sits above the bottom bar. */
     #subtitle {
@@ -86,6 +89,14 @@
     }
     #startBtn:hover { transform: translateY(-2px); box-shadow: 0 12px 36px rgba(224,176,85,.5); }
     #startBtn:disabled { opacity: .6; cursor: default; transform: none; }
+    /* Secondary (outline) buttons on the title card: Upload / Download. */
+    .secondary {
+      font-family: system-ui, sans-serif; font-weight: 600; font-size: .95rem;
+      padding: 12px 26px; border-radius: 999px; cursor: pointer;
+      background: transparent; color: var(--gold); border: 1px solid var(--gold);
+    }
+    .secondary:hover { background: rgba(224,176,85,.12); }
+    .row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; justify-content: center; }
     #hint { font-family: system-ui, sans-serif; font-size: .8rem; color: #8b857a; }
   </style>
 </head>
@@ -101,7 +112,10 @@
       <span>Live</span>
       <span class="sub" id="status"></span>
     </div>
-    <button id="stopBtn">■ Stop</button>
+    <div id="topRight">
+      <button id="transcriptBtn">⬇ Transcript</button>
+      <button id="stopBtn">■ Stop</button>
+    </div>
 
     <div id="subtitle"></div>
 
@@ -109,8 +123,13 @@
       <div class="kicker">A Nature Documentary</div>
       <h1>Attenborough Mode</h1>
       <p class="tagline">Rare footage of the modern developer in its natural habitat, narrated as it truly deserves.</p>
-      <button id="startBtn">▶ Start Documentary</button>
-      <div id="hint">Best with sound on. Camera access required.</div>
+      <div class="row">
+        <button id="startBtn">▶ Start Documentary</button>
+        <button id="uploadBtn" class="secondary">⬆ Upload a Video</button>
+      </div>
+      <button id="downloadBtn" class="secondary" style="display:none">⬇ Download transcript</button>
+      <input id="fileInput" type="file" accept="video/*" hidden />
+      <div id="hint">Live uses your camera · Upload narrates any video · sound on</div>
     </div>
   </div>
 
@@ -130,9 +149,46 @@
     const stopBtn  = document.getElementById('stopBtn');
     const rec       = document.getElementById('rec');
     const titlecard = document.getElementById('titlecard');
+    const uploadBtn   = document.getElementById('uploadBtn');
+    const fileInput   = document.getElementById('fileInput');
+    const topRight    = document.getElementById('topRight');
+    const transcriptBtn = document.getElementById('transcriptBtn');
+    const downloadBtn   = document.getElementById('downloadBtn');
 
     let timer = null;
+    let mode = 'live';         // 'live' (webcam) or 'video' (uploaded file)
+    let startedAt = 0;         // for live-mode transcript timestamps
+    let videoUrl = null;       // object URL of an uploaded video, to revoke later
+    const transcript = [];     // [{ t: seconds, text }] accumulated narration
     const TTS_URL = location.origin + '/tts';
+
+    // Timestamp for the current frame: video position, or elapsed time when live.
+    function stamp() {
+      return mode === 'video' ? video.currentTime : (performance.now() - startedAt) / 1000;
+    }
+    function fmt(s) {
+      const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+      return `${m}:${String(sec).padStart(2, '0')}`;
+    }
+    // Show Stop while running and the Transcript button once there's content.
+    function updateTopbar() {
+      stopBtn.style.display = running ? 'inline-block' : 'none';
+      transcriptBtn.style.display = transcript.length ? 'inline-block' : 'none';
+      topRight.style.display = (running || transcript.length) ? 'flex' : 'none';
+    }
+    // Build the transcript text and trigger a download.
+    function downloadTranscript() {
+      if (!transcript.length) return;
+      const body = transcript.map(e => `[${fmt(e.t)}] ${e.text}`).join('\n\n');
+      const header = 'Attenborough Mode — Narration Transcript\n' +
+                     new Date().toLocaleString() + '\n\n';
+      const blob = new Blob([header + body], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'attenborough-transcript.txt';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
 
     // --- Producer/consumer queue -------------------------------------------
     // The timer PRODUCES narrations (fetch text + audio) and pushes them here;
@@ -210,6 +266,7 @@
       // Don't stack requests, and don't race too far ahead of what's spoken.
       if (!running || fetching || queue.length >= MAX_QUEUE) return;
       fetching = true;
+      const t = stamp();                              // frame time, for the transcript
       try {
         const image = grabFrame();
         const res = await fetch(API, {
@@ -221,6 +278,8 @@
         const { narration } = await res.json();
         const url = await getAudioUrl(narration);     // null => browser voice
         if (!running) return;                         // stopped during TTS — drop it
+        transcript.push({ t, text: narration });      // record for the transcript
+        updateTopbar();
         queue.push({ url, text: narration });
         drainQueue();                                 // start playing if idle
       } catch (e) {
@@ -282,22 +341,53 @@
       return null;
     }
 
-    async function start() {
+    // Shared setup once a frame source (camera or video) is playing.
+    function beginLoop() {
+      transcript.length = 0;               // fresh transcript per session
+      downloadBtn.style.display = 'none';
+      startedAt = performance.now();
+      running = true;
+      titlecard.classList.add('hidden');
+      rec.style.display = 'flex';
+      statusEl.textContent = 'observing…';
+      updateTopbar();
+      tick();                              // fire immediately, then on an interval
+      timer = setInterval(tick, INTERVAL_MS);
+    }
+
+    // LIVE mode: webcam.
+    async function startWebcam() {
       startBtn.disabled = true;
       try {
+        video.src = '';
         await initCamera();
       } catch (e) {
         alert('Camera access is required. Please allow it and try again.');
         startBtn.disabled = false;
         return;
       }
-      running = true;
-      titlecard.classList.add('hidden');
-      rec.style.display = 'flex';
-      stopBtn.style.display = 'block';
-      statusEl.textContent = 'observing…';
-      tick();                          // fire immediately, then on an interval
-      timer = setInterval(tick, INTERVAL_MS);
+      video.onended = null;
+      mode = 'live';
+      beginLoop();
+    }
+
+    // UPLOAD mode: narrate a chosen video file.
+    async function startVideo(file) {
+      if (videoUrl) URL.revokeObjectURL(videoUrl);
+      videoUrl = URL.createObjectURL(file);
+      video.srcObject = null;
+      video.src = videoUrl;
+      video.muted = true;                  // mute the clip so narration is clear
+      video.loop = false;
+      video.onended = () => stop();        // finish the session when the clip ends
+      try {
+        await video.play();
+      } catch (e) {
+        alert('Could not play that video file.');
+        return;
+      }
+      mode = 'video';
+      beginLoop();
     }
 
     function stop() {
@@ -307,19 +397,28 @@
       speechSynthesis.cancel();
       if (currentAudio) { try { currentAudio.pause(); } catch (e) {} currentAudio = null; }
       if (currentDone) { const d = currentDone; currentDone = null; d(); }  // unblock the awaiter
+      if (mode === 'video') { try { video.pause(); } catch (e) {} }
       queue.length = 0;      // drop anything waiting to be spoken
       playing = false;
       fetching = false;
       rec.style.display = 'none';
       rec.classList.remove('narrating');
-      stopBtn.style.display = 'none';
       subtitle.classList.remove('show');
       titlecard.classList.remove('hidden');
       startBtn.disabled = false;
+      updateTopbar();
+      // Offer the transcript on the title card once a session has produced one.
+      downloadBtn.style.display = transcript.length ? 'inline-block' : 'none';
     }
 
-    startBtn.addEventListener('click', start);
+    startBtn.addEventListener('click', startWebcam);
     stopBtn.addEventListener('click', stop);
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files[0]) startVideo(fileInput.files[0]);
+    });
+    transcriptBtn.addEventListener('click', downloadTranscript);
+    downloadBtn.addEventListener('click', downloadTranscript);
 
     // Voices load asynchronously in some browsers; nudge them to populate.
     speechSynthesis.onvoiceschanged = () => {};
