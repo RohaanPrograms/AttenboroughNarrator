@@ -46,7 +46,8 @@ TTS_STYLE = (
     "and gentle curiosity. Keep the delivery smooth, natural, and continuous "
     "at a moderately brisk pace. Use subtle emphasis on important words, but "
     "avoid long or frequent pauses. Let sentences flow together naturally so "
-    "the narration stays engaging and matches live video without awkward gaps."
+    "the narration stays engaging and matches live video without awkward gaps. "
+    "Accent: refined British Received Pronunciation."
 )
 # Gemini TTS returns raw PCM: 24 kHz, 16-bit, mono.
 TTS_RATE, TTS_WIDTH, TTS_CHANNELS = 24000, 2, 1

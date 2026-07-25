@@ -172,6 +172,7 @@
     let mode = 'live';         // 'live' (webcam) or 'video' (uploaded file)
     let startedAt = 0;         // for live-mode transcript timestamps
     let videoUrl = null;       // object URL of an uploaded video, to revoke later
+    let sourceEnded = false;   // uploaded video finished; drain remaining narration then end
     const transcript = [];     // [{ t: seconds, text }] accumulated narration
     const TTS_URL = location.origin + '/tts';
 
@@ -300,6 +301,7 @@
         if (running) statusEl.textContent = 'reconnecting…';
       } finally {
         fetching = false;
+        checkDone();                                // in case this was the last frame of a video
       }
     }
 
@@ -318,6 +320,15 @@
       rec.classList.remove('narrating');
       if (running) statusEl.textContent = 'observing…';
       playing = false;
+      checkDone();                                  // maybe the video ended and we've now caught up
+    }
+
+    // If the uploaded video has finished AND all narration has been spoken,
+    // end the session gracefully (nothing left in flight or in the queue).
+    function checkDone() {
+      if (sourceEnded && running && !playing && !fetching && queue.length === 0) {
+        endSession();
+      }
     }
 
     // Pick the most Attenborough-ish browser voice available (fallback path).
@@ -357,6 +368,7 @@
     // Shared setup once a frame source (camera or video) is playing.
     function beginLoop() {
       transcript.length = 0;               // fresh transcript per session
+      sourceEnded = false;
       downloadBtn.style.display = 'none';
       startedAt = performance.now();
       running = true;
@@ -392,7 +404,9 @@
       video.src = videoUrl;
       video.muted = true;                  // mute the clip so narration is clear
       video.loop = false;
-      video.onended = () => stop();        // finish the session when the clip ends
+      // When the clip ends, stop grabbing new frames but let the queued
+      // narration finish speaking — the session ends once it has drained.
+      video.onended = onVideoEnded;
       try {
         await video.play();
       } catch (e) {
@@ -403,15 +417,23 @@
       beginLoop();
     }
 
-    function stop() {
-      running = false;       // every in-flight async step bails on this
+    // Video finished: stop producing frames, keep speaking what's queued.
+    function onVideoEnded() {
+      if (!running || sourceEnded) return;
+      sourceEnded = true;
+      if (timer) clearInterval(timer);     // no more frames to grab
+      timer = null;
+      statusEl.textContent = 'finishing narration…';
+      checkDone();                         // end now if nothing is left to say
+    }
+
+    // Common UI reset for both hard stop and graceful end-of-video.
+    function teardown() {
+      running = false;
+      sourceEnded = false;
       if (timer) clearInterval(timer);
       timer = null;
-      speechSynthesis.cancel();
-      if (currentAudio) { try { currentAudio.pause(); } catch (e) {} currentAudio = null; }
-      if (currentDone) { const d = currentDone; currentDone = null; d(); }  // unblock the awaiter
       if (mode === 'video') { try { video.pause(); } catch (e) {} }
-      queue.length = 0;      // drop anything waiting to be spoken
       playing = false;
       fetching = false;
       rec.style.display = 'none';
@@ -422,6 +444,20 @@
       updateTopbar();
       // Offer the transcript on the title card once a session has produced one.
       downloadBtn.style.display = transcript.length ? 'inline-block' : 'none';
+    }
+
+    // Graceful end: the video drained; the last line has finished speaking.
+    function endSession() {
+      teardown();
+    }
+
+    // Hard stop (user clicked Stop): cut everything immediately.
+    function stop() {
+      speechSynthesis.cancel();
+      if (currentAudio) { try { currentAudio.pause(); } catch (e) {} currentAudio = null; }
+      if (currentDone) { const d = currentDone; currentDone = null; d(); }  // unblock the awaiter
+      queue.length = 0;      // drop anything waiting to be spoken
+      teardown();
     }
 
     startBtn.addEventListener('click', startWebcam);
