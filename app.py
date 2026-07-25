@@ -12,6 +12,7 @@ POST /tts
 import base64
 import io
 import os
+import time
 import wave
 
 from flask import Flask, Response, jsonify, request
@@ -49,6 +50,8 @@ TTS_STYLE = (
 )
 # Gemini TTS returns raw PCM: 24 kHz, 16-bit, mono.
 TTS_RATE, TTS_WIDTH, TTS_CHANNELS = 24000, 2, 1
+# The TTS preview model can hiccup under load; retry before falling back.
+TTS_RETRIES = int(os.environ.get("TTS_RETRIES", "3"))
 
 # --- Pacing / flow --------------------------------------------------------
 # If a narration would be spoken in less time than the frontend's sampling
@@ -203,31 +206,43 @@ def narrate():
 
 @app.post("/tts")
 def tts():
-    """Speak narration via Gemini TTS with dramatic documentary delivery."""
+    """Speak narration via Gemini TTS with a smooth documentary delivery.
+
+    The TTS model is a preview model that occasionally returns transient
+    "high demand" (503) errors. We retry a few times so a momentary blip
+    doesn't drop the listener to the robotic browser voice.
+    """
     text = (request.json or {}).get("text", "").strip()
     if not text:
         return jsonify(error="no text"), 400
-    try:
-        resp = client.models.generate_content(
-            model=TTS_MODEL,
-            contents=f"{TTS_STYLE} {text}",
-            config=types.GenerateContentConfig(
-                response_modalities=["AUDIO"],
-                speech_config=types.SpeechConfig(
-                    voice_config=types.VoiceConfig(
-                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                            voice_name=TTS_VOICE
+
+    last_err = None
+    for attempt in range(TTS_RETRIES):
+        try:
+            resp = client.models.generate_content(
+                model=TTS_MODEL,
+                contents=f"{TTS_STYLE} {text}",
+                config=types.GenerateContentConfig(
+                    response_modalities=["AUDIO"],
+                    speech_config=types.SpeechConfig(
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                voice_name=TTS_VOICE
+                            )
                         )
-                    )
+                    ),
                 ),
-            ),
-        )
-        pcm = resp.candidates[0].content.parts[0].inline_data.data
-        return Response(pcm_to_wav(pcm), mimetype="audio/wav")
-    except Exception as e:
-        # On any failure the frontend falls back to the browser voice.
-        print("tts error:", e)
-        return jsonify(error="tts failed"), 502
+            )
+            pcm = resp.candidates[0].content.parts[0].inline_data.data
+            return Response(pcm_to_wav(pcm), mimetype="audio/wav")
+        except Exception as e:
+            last_err = e
+            print(f"tts error (attempt {attempt + 1}/{TTS_RETRIES}):", e)
+            time.sleep(0.6 * (attempt + 1))  # brief backoff before retrying
+
+    # All retries failed — frontend falls back to the browser voice.
+    print("tts giving up:", last_err)
+    return jsonify(error="tts failed"), 502
 
 
 if __name__ == "__main__":
