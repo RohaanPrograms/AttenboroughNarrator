@@ -6,13 +6,14 @@ POST /narrate
 
 POST /tts
   body: { "text": "..." }
-  resp: audio/mpeg (MP3) spoken in a deep British voice via ElevenLabs.
-        503 if no ELEVENLABS_API_KEY is set (frontend falls back to browser TTS).
+  resp: audio/wav spoken by Gemini TTS with a dramatic documentary delivery
+        (pauses + emphasis). Falls back to browser TTS only if the call errors.
 """
 import base64
+import io
 import os
+import wave
 
-import requests
 from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
 from google import genai
@@ -30,15 +31,34 @@ except ImportError:
 # limit 0). gemini-flash-latest is the working stand-in.
 MODEL = "gemini-flash-latest"
 
-# --- ElevenLabs (TTS) config ---------------------------------------------
-ELEVEN_KEY = os.environ.get("ELEVENLABS_API_KEY", "").strip()
-# Default: "George" — a warm, deep British male voice from the ElevenLabs
-# default library. Override with ELEVENLABS_VOICE_ID for a different voice.
-ELEVEN_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb").strip()
-# flash model = lowest latency + cheapest, ideal for a live demo.
-ELEVEN_MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_flash_v2_5").strip()
+# --- Gemini TTS config ----------------------------------------------------
+# One provider for both narration and voice — no separate key needed.
+TTS_MODEL = os.environ.get("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview").strip()
+# Prebuilt voice. "Charon" = deep + informative, a good Attenborough fit.
+# Alternatives to try: "Orus" (firm), "Fenrir" (excitable), "Puck", "Kore".
+TTS_VOICE = os.environ.get("GEMINI_TTS_VOICE", "Charon").strip()
+# Delivery direction — this is what gives the pauses and emphasis. It's read
+# as a style instruction, not spoken aloud.
+TTS_STYLE = (
+    "Read aloud in the warm, hushed, awe-filled voice of a wildlife "
+    "documentary narrator. Use a measured pace with dramatic pauses and "
+    "gently emphasise the key words:"
+)
+# Gemini TTS returns raw PCM: 24 kHz, 16-bit, mono.
+TTS_RATE, TTS_WIDTH, TTS_CHANNELS = 24000, 2, 1
 
 client = genai.Client()  # reads GEMINI_API_KEY from the environment
+
+
+def pcm_to_wav(pcm: bytes) -> bytes:
+    """Wrap raw PCM from Gemini TTS in a WAV header the browser can play."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(TTS_CHANNELS)
+        w.setsampwidth(TTS_WIDTH)
+        w.setframerate(TTS_RATE)
+        w.writeframes(pcm)
+    return buf.getvalue()
 
 app = Flask(__name__, static_folder="public", static_url_path="")
 CORS(app)
@@ -90,7 +110,7 @@ def index():
 
 @app.get("/health")
 def health():
-    return jsonify(status="ok", model=MODEL, tts="elevenlabs" if ELEVEN_KEY else "browser")
+    return jsonify(status="ok", model=MODEL, tts="gemini", voice=TTS_VOICE)
 
 
 @app.post("/narrate")
@@ -125,31 +145,31 @@ def narrate():
 
 @app.post("/tts")
 def tts():
-    """Turn narration text into MP3 audio via ElevenLabs (deep British voice)."""
+    """Speak narration via Gemini TTS with dramatic documentary delivery."""
     text = (request.json or {}).get("text", "").strip()
     if not text:
         return jsonify(error="no text"), 400
-    if not ELEVEN_KEY:
-        # No key configured — tell the frontend to use its browser-TTS fallback.
-        return jsonify(error="no ELEVENLABS_API_KEY set"), 503
     try:
-        r = requests.post(
-            f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE_ID}",
-            headers={"xi-api-key": ELEVEN_KEY, "Content-Type": "application/json"},
-            json={
-                "text": text,
-                "model_id": ELEVEN_MODEL,
-                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
-            },
-            timeout=30,
+        resp = client.models.generate_content(
+            model=TTS_MODEL,
+            contents=f"{TTS_STYLE} {text}",
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=TTS_VOICE
+                        )
+                    )
+                ),
+            ),
         )
-        if r.status_code != 200:
-            print("tts error:", r.status_code, r.text[:200])
-            return jsonify(error="tts failed", status=r.status_code), 502
-        return Response(r.content, mimetype="audio/mpeg")
+        pcm = resp.candidates[0].content.parts[0].inline_data.data
+        return Response(pcm_to_wav(pcm), mimetype="audio/wav")
     except Exception as e:
-        print("tts exception:", e)
-        return jsonify(error="tts exception"), 502
+        # On any failure the frontend falls back to the browser voice.
+        print("tts error:", e)
+        return jsonify(error="tts failed"), 502
 
 
 if __name__ == "__main__":

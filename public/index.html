@@ -163,9 +163,9 @@
       });
     }
 
-    // Speak via the browser voice to completion (fallback path, used when no
-    // ElevenLabs key is set). Chrome silently truncates any utterance longer
-    // than ~15s; the pause/resume keep-alive below prevents that cut-off.
+    // Speak via the browser voice to completion (fallback path, used only if
+    // Gemini TTS errors). Chrome silently truncates any utterance longer than
+    // ~15s; the pause/resume keep-alive below prevents that cut-off.
     function playBrowser(text) {
       return new Promise((resolve) => {
         const u = new SpeechSynthesisUtterance(text);
@@ -251,10 +251,10 @@
       return voices.find(v => /en-GB/i.test(v.lang)) || null;  // any British
     }
 
-    // Fetch the ElevenLabs MP3 for a line and return an object URL to play
-    // later. Returns null if TTS is unavailable, so the player uses the
-    // browser voice instead. (Fetching here, playing in the queue, keeps
-    // audio ready before its turn — no gap between lines.)
+    // Fetch the Gemini TTS audio (WAV) for a line and return an object URL to
+    // play later. Returns null if TTS errors, so the player uses the browser
+    // voice instead. (Fetching here, playing in the queue, keeps audio ready
+    // before its turn — no gap between lines.)
     async function getAudioUrl(text) {
       try {
         const res = await fetch(TTS_URL, {

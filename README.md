@@ -14,17 +14,18 @@ Create a `.env` file in the project root (it's gitignored — **never commit it*
 
 ```
 GEMINI_API_KEY=your_key_from_aistudio.google.com
-# Optional — for the deep British documentary voice:
-ELEVENLABS_API_KEY=your_key_from_elevenlabs.io
+# Optional voice overrides:
+# GEMINI_TTS_VOICE=Charon      # try: Orus, Fenrir, Puck, Kore
 ```
 
 > Get a free Gemini key at [aistudio.google.com](https://aistudio.google.com) → "Get API key".
 > Each person uses their own key.
 >
-> **Voice:** without `ELEVENLABS_API_KEY` the app uses the browser's built-in
-> voice (robotic). Add a free [elevenlabs.io](https://elevenlabs.io) key to get a
-> lifelike deep British voice. Optional overrides: `ELEVENLABS_VOICE_ID`
-> (defaults to "George") and `ELEVENLABS_MODEL` (defaults to `eleven_flash_v2_5`).
+> **Voice:** narration is spoken by **Gemini TTS** using the *same* key — one
+> provider, no extra setup. It's instructed to deliver lines like a wildlife
+> documentary, with dramatic pauses and emphasis. Change the voice with
+> `GEMINI_TTS_VOICE` (default "Charon"). If TTS ever errors, it falls back to
+> the browser's built-in voice automatically.
 
 Run the backend:
 
@@ -40,7 +41,7 @@ Then open **http://localhost:3000/** in Chrome, grant camera access, and hit **S
 Browser (webcam) --base64 JPEG--> Flask /narrate --image--> Gemini --text--> Browser (caption + TTS)
 ```
 
-- **Frontend** (`public/index.html`): captures a webcam frame every ~5s, POSTs it, shows the caption, and speaks it with the browser's Speech Synthesis.
+- **Frontend** (`public/index.html`): captures a webcam frame every ~6s, POSTs it, shows the caption, and plays the spoken audio (queued so lines never overlap).
 - **Backend** (`app.py`): `/narrate` proxy that holds the API key and calls Gemini with the Attenborough system prompt.
 
 ## API contract
