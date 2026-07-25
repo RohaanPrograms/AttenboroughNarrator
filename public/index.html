@@ -52,11 +52,17 @@
     const stopBtn  = document.getElementById('stopBtn');
 
     let timer = null;
-    let busy = false;   // a /narrate request is in flight
     const TTS_URL = location.origin + '/tts';
 
-    // Currently-playing audio element, so stop() can halt it.
-    let currentAudio = null;
+    // --- Producer/consumer queue -------------------------------------------
+    // The timer PRODUCES narrations (fetch text + audio) and pushes them here;
+    // the player CONSUMES them one at a time, so lines always play in order
+    // and are never cut off. Each item: { url: string|null, text: string }.
+    const queue = [];
+    let fetching = false;      // a /narrate request is currently in flight
+    let playing = false;       // the player loop is running
+    let currentAudio = null;   // active <audio>, so stop() can halt it
+    const MAX_QUEUE = 2;       // don't run more than this far ahead of speech
 
     // Play an MP3 URL to completion. Resolves only when the clip ENDS —
     // this is what guarantees a narration is never cut off mid-sentence.
@@ -98,11 +104,11 @@
       return canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
     }
 
+    // PRODUCER: grab a frame, get a narration + its audio, push to the queue.
     async function tick() {
-      // Skip, don't stack: busy stays true through the ENTIRE narration
-      // (request + full audio playback), so a line is never interrupted (§8).
-      if (busy) return;
-      busy = true;
+      // Don't stack requests, and don't race too far ahead of what's spoken.
+      if (fetching || queue.length >= MAX_QUEUE) return;
+      fetching = true;
       statusEl.innerHTML = '<span class="live">● LIVE</span> observing…';
       try {
         const image = grabFrame();
@@ -112,14 +118,28 @@
           body: JSON.stringify({ image })
         });
         const { narration } = await res.json();
-        caption.textContent = narration;
-        await speak(narration);
+        const url = await getAudioUrl(narration);   // null => browser voice
+        queue.push({ url, text: narration });
+        drainQueue();                                 // start playing if idle
       } catch (e) {
         console.error('narrate failed', e);
         statusEl.textContent = 'network error — retrying next tick';
       } finally {
-        busy = false;
+        fetching = false;
       }
+    }
+
+    // CONSUMER: play queued narrations one at a time, in order, never cutting.
+    async function drainQueue() {
+      if (playing) return;
+      playing = true;
+      while (queue.length) {
+        const item = queue.shift();
+        caption.textContent = item.text;           // caption in sync with audio
+        if (item.url) await playAudio(item.url);
+        else await playBrowser(item.text);
+      }
+      playing = false;
     }
 
     // Pick the most Attenborough-ish browser voice available. Real upgrade
@@ -138,10 +158,11 @@
       return voices.find(v => /en-GB/i.test(v.lang)) || null;  // any British
     }
 
-    // Primary: ElevenLabs deep British voice via the backend, played to
-    // completion. Falls back to the browser voice if that isn't available.
-    // Returns only when the line has FINISHED speaking.
-    async function speak(text) {
+    // Fetch the ElevenLabs MP3 for a line and return an object URL to play
+    // later. Returns null if TTS is unavailable, so the player uses the
+    // browser voice instead. (Fetching here, playing in the queue, keeps
+    // audio ready before its turn — no gap between lines.)
+    async function getAudioUrl(text) {
       try {
         const res = await fetch(TTS_URL, {
           method: 'POST',
@@ -150,13 +171,12 @@
         });
         if (res.ok && (res.headers.get('content-type') || '').includes('audio')) {
           const blob = await res.blob();
-          await playAudio(URL.createObjectURL(blob));
-          return;
+          return URL.createObjectURL(blob);
         }
       } catch (e) {
         console.warn('ElevenLabs TTS unavailable, using browser voice', e);
       }
-      await playBrowser(text);
+      return null;
     }
 
     async function start() {
@@ -178,7 +198,9 @@
       timer = null;
       speechSynthesis.cancel();
       if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-      busy = false;
+      queue.length = 0;      // drop anything waiting to be spoken
+      playing = false;
+      fetching = false;
       stopBtn.disabled = true;
       startBtn.disabled = false;
       statusEl.textContent = 'stopped';

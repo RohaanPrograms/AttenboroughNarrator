@@ -57,7 +57,9 @@ coffee, scrolling a phone) as remarkable evolutionary adaptations or survival \
 rituals.
 
 RULES:
-- 1 to 2 sentences ONLY. This is spoken aloud in real time.
+- ONE sentence only, and keep it SHORT — aim for under ~18 words. It is \
+spoken aloud in real time and a long line runs past its welcome. Keep the \
+posh Attenborough formality, just tighter.
 - Stay in character as Attenborough at all times. Never break the fourth wall.
 - VARY your sentence openings. Do NOT reuse an opening from your recent lines \
 below. Rotate between styles like "Here we see...", "Observe...", "In a rare \
@@ -108,8 +110,8 @@ def narrate():
                 temperature=0.95,
                 # gemini-flash-latest is a thinking model. It spends output
                 # tokens on internal reasoning, so cap thinking low and leave
-                # generous room for the actual 1-2 sentence narration.
-                max_output_tokens=250,
+                # room for one short narration sentence.
+                max_output_tokens=200,
                 thinking_config=types.ThinkingConfig(thinking_budget=128),
             ),
         )
