@@ -52,7 +52,29 @@
     const stopBtn  = document.getElementById('stopBtn');
 
     let timer = null;
-    let busy = false;   // skip-if-busy so requests never stack up (see plan §8)
+    let busy = false;   // a /narrate request is in flight
+    const TTS_URL = location.origin + '/tts';
+
+    // --- Audio queue: play narrations one at a time, never overlapping (§8) ---
+    const audioQueue = [];
+    let playing = false;
+
+    function enqueueAudio(url) {
+      audioQueue.push(url);
+      if (!playing) playNext();
+    }
+    function playNext() {
+      if (audioQueue.length === 0) { playing = false; return; }
+      playing = true;
+      const a = new Audio(audioQueue.shift());
+      a.onended = () => { URL.revokeObjectURL(a.src); playNext(); };
+      a.onerror = () => { playNext(); };
+      a.play().catch(() => playNext());
+    }
+    // True while anything is still being spoken (either ElevenLabs or browser).
+    function isSpeaking() {
+      return playing || audioQueue.length > 0 || speechSynthesis.speaking;
+    }
 
     async function initCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -69,7 +91,8 @@
     }
 
     async function tick() {
-      if (busy) return;                 // previous narration still in flight — skip this tick
+      // Skip, don't stack: if we're mid-request or still speaking, wait (§8).
+      if (busy || isSpeaking()) return;
       busy = true;
       statusEl.innerHTML = '<span class="live">● LIVE</span> observing…';
       try {
@@ -81,7 +104,7 @@
         });
         const { narration } = await res.json();
         caption.textContent = narration;
-        speak(narration);
+        await speak(narration);
       } catch (e) {
         console.error('narrate failed', e);
         statusEl.textContent = 'network error — retrying next tick';
@@ -106,13 +129,32 @@
       return voices.find(v => /en-GB/i.test(v.lang)) || null;  // any British
     }
 
-    function speak(text) {
+    // Primary: ElevenLabs deep British voice via the backend. If that isn't
+    // available (no key / error), fall back to the browser voice.
+    async function speak(text) {
+      try {
+        const res = await fetch(TTS_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        if (res.ok && (res.headers.get('content-type') || '').includes('audio')) {
+          const blob = await res.blob();
+          enqueueAudio(URL.createObjectURL(blob));
+          return;
+        }
+      } catch (e) {
+        console.warn('ElevenLabs TTS unavailable, using browser voice', e);
+      }
+      speakBrowser(text);
+    }
+
+    function speakBrowser(text) {
       const u = new SpeechSynthesisUtterance(text);
       u.rate = 0.88; u.pitch = 0.75;   // slow + low = documentary gravitas
       const v = pickVoice();
       if (v) u.voice = v;
-      speechSynthesis.cancel();   // Phase 1: cut off any prior line; proper queue comes in Phase 2
-      speechSynthesis.speak(u);
+      speechSynthesis.speak(u);   // queued naturally; isSpeaking() gates overlap
     }
 
     async function start() {
@@ -133,6 +175,8 @@
       if (timer) clearInterval(timer);
       timer = null;
       speechSynthesis.cancel();
+      audioQueue.length = 0;   // drop any pending ElevenLabs clips
+      playing = false;
       stopBtn.disabled = true;
       startBtn.disabled = false;
       statusEl.textContent = 'stopped';

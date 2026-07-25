@@ -14,10 +14,17 @@ Create a `.env` file in the project root (it's gitignored — **never commit it*
 
 ```
 GEMINI_API_KEY=your_key_from_aistudio.google.com
+# Optional — for the deep British documentary voice:
+ELEVENLABS_API_KEY=your_key_from_elevenlabs.io
 ```
 
-> Get a free key at [aistudio.google.com](https://aistudio.google.com) → "Get API key".
+> Get a free Gemini key at [aistudio.google.com](https://aistudio.google.com) → "Get API key".
 > Each person uses their own key.
+>
+> **Voice:** without `ELEVENLABS_API_KEY` the app uses the browser's built-in
+> voice (robotic). Add a free [elevenlabs.io](https://elevenlabs.io) key to get a
+> lifelike deep British voice. Optional overrides: `ELEVENLABS_VOICE_ID`
+> (defaults to "George") and `ELEVENLABS_MODEL` (defaults to `eleven_flash_v2_5`).
 
 Run the backend:
 
