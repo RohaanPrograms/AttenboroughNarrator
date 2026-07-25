@@ -98,6 +98,30 @@ shapes it, and native TTS speaks it. No other AI services involved.
 | **Prompt engineering + continuity** | A crafted system prompt, plus the last 3 narrations fed back in so it doesn't repeat itself and builds a loose story. |
 | **Model discovery** | `client.models.list()` to find the TTS model available on the account. |
 
+## Future improvements
+
+**Reduce the delay between on-screen movement and the narration/transcript.**
+Today a frame is sampled every ~6s, then vision → text → TTS run in sequence
+and the audio is buffered in a small queue, so a narrated line can trail the
+action by roughly 10–20s. Ideas to tighten that:
+
+- **Gemini Live API** — stream audio + video in real time instead of the
+  frame-by-frame request/response loop. The single biggest win; narration
+  could react to movement in near real time.
+- **Streaming responses** — stream the narration text token-by-token and
+  begin TTS on the first sentence rather than waiting for the whole reply.
+- **Motion-triggered sampling** — detect frame changes client-side and narrate
+  when something actually happens, instead of on a fixed timer, so lines track
+  real movement rather than arbitrary intervals.
+- **Trim the pipeline** — a faster / lower-thinking model, smaller frames, and
+  a shorter interval / queue reduce end-to-end latency (trading some
+  gap-filling and detail).
+- **Skip the elongation round-trip** — pre-size narrations to the interval in
+  the first call instead of a second `generate_content` to lengthen short
+  lines.
+- **Pre-fetch the next frame** — kick off the next request slightly before the
+  current line finishes so audio is always ready with no idle gap.
+
 ## Notes
 
 - Model: `gemini-flash-latest` (the plan's `gemini-2.0-flash` is unavailable on new free-tier accounts). It's a thinking model, so the backend sets a small `thinking_budget` and a generous token cap.
