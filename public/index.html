@@ -41,8 +41,9 @@
 
   <script>
     const API = location.origin + '/narrate';   // same-origin: Flask serves this page
-    // 15s keeps documentary pacing while using ~1/3 the API quota of a 5s loop.
-    const INTERVAL_MS = 15000;
+    // 6s = snappier pacing. The MAX_QUEUE guard keeps it from racing ahead
+    // of the voice, and each frame is still one Gemini + one ElevenLabs call.
+    const INTERVAL_MS = 6000;
 
     const video   = document.getElementById('cam');
     const canvas  = document.getElementById('grab');
